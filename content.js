@@ -12,7 +12,7 @@
   const HEX = /^#[0-9a-f]{6}$/i;
 
   /* ---- Performance guards ---- */
-  const MAX_MARKS = 3000;          // hard cap on highlights per page
+  const MAX_MARKS = 5000;          // hard cap on highlights per page
   const SLICE_MS = 8;              // max main-thread time per work slice
   const DEBOUNCE_MS = 120;         // coalesce bursts of page mutations
   const ROOT_COLLAPSE_LIMIT = 500; // too many changed roots -> one walk of <body>
@@ -64,6 +64,32 @@
     return settings.groups && settings.groups.length ? settings.groups : legacyGroups(settings.words);
   }
 
+  /* ---------- Word list -> compact regex (prefix tree keeps thousands of words fast) ---------- */
+
+  const escChar = (ch) => (/\s/.test(ch) ? "\\s+" : ch.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&"));
+
+  function trieToPattern(words) {
+    const root = { kids: new Map(), end: false };
+    for (const w of words) {
+      let node = root;
+      for (const ch of w) {
+        let next = node.kids.get(ch);
+        if (!next) { next = { kids: new Map(), end: false }; node.kids.set(ch, next); }
+        node = next;
+      }
+      node.end = true;
+    }
+
+    const emit = (node) => {
+      const parts = [];
+      node.kids.forEach((child, ch) => parts.push(escChar(ch) + emit(child)));
+      if (!parts.length) return "";
+      if (node.end) return parts.length === 1 ? `(?:${parts[0]})?` : `(?:${parts.join("|")})?`;
+      return parts.length === 1 ? parts[0] : `(?:${parts.join("|")})`;
+    };
+    return emit(root);
+  }
+
   function build() {
     const map = new Map();
     const list = [];
@@ -78,16 +104,12 @@
         const key = norm(t);
         if (map.has(key)) continue; // first set wins if a word appears twice
         map.set(key, style);
-        list.push(t);
+        list.push(key); // already lower-cased / whitespace-collapsed as needed
       }
     }
     if (!list.length) return { re: null, map };
 
-    const escaped = list
-      .sort((a, b) => b.length - a.length) // longest first: "New York" beats "New"
-      .map((t) => t.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&").replace(/\s+/g, "\\s+"));
-
-    const body = `(?:${escaped.join("|")})`;
+    const body = `(?:${trieToPattern(list)})`; // greedy, so "New York" still beats "New"
     const pattern = settings.wholeWord
       ? `(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`
       : body;
@@ -322,13 +344,19 @@
 
   /* ---------- Settings + popup messages ---------- */
 
-  chrome.storage.sync.get(DEFAULTS, (stored) => {
+  function start(stored) {
     settings = { ...DEFAULTS, ...stored };
     apply();
+  }
+
+  chrome.storage.local.get(DEFAULTS, (stored) => {
+    if ((stored.groups || []).length || (stored.words || []).length) return start(stored);
+    // Older versions used chrome.storage.sync; the popup moves the data over when opened.
+    chrome.storage.sync.get(DEFAULTS, (old) => start(old));
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "sync") return;
+    if (area !== "local") return;
     for (const key in changes) settings[key] = changes[key].newValue;
     scheduleRefresh();
   });

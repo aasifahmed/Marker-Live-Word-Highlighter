@@ -1,10 +1,13 @@
-const MAX_WORDS = 100;
+const MAX_WORDS = 5000;
+const MAX_WORD_LENGTH = 80;
+const CHIP_PREVIEW = 60; // chips drawn per set before "Show all"
 const MAX_SETS = 12;
 const PRESETS = ["#fde047", "#86efac", "#93c5fd", "#f9a8d4", "#fdba74", "#c4b5fd", "#5eead4", "#fca5a5"];
 const DEFAULTS = { enabled: true, caseSensitive: false, wholeWord: true, groups: [], words: [] };
 const HEX = /^#[0-9a-f]{6}$/i;
 
 let state = { ...DEFAULTS };
+const expanded = new Set(); // set ids showing every chip
 let flash = null; // { id, msg } – a short note to show on a card after re-render
 
 const $ = (id) => document.getElementById(id);
@@ -72,7 +75,7 @@ function flushSave() {
   clearTimeout(saveTimer);
   if (!dirty) return;
   dirty = false;
-  chrome.storage.sync.set({ groups: state.groups });
+  chrome.storage.local.set({ groups: state.groups });
 }
 
 window.addEventListener("pagehide", flushSave); // don't lose edits when the popup closes
@@ -111,7 +114,7 @@ function groupsFromLegacy(words) {
 }
 
 function addWordsTo(group, raw) {
-  const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  const parts = raw.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
   const taken = new Map();
   state.groups.forEach((g) => g.words.forEach((w) => taken.set(w.toLowerCase(), g.name)));
 
@@ -119,6 +122,7 @@ function addWordsTo(group, raw) {
   let msg = "";
   for (const text of parts) {
     const key = text.toLowerCase();
+    if (text.length > MAX_WORD_LENGTH) { msg = msg || `Words can be up to ${MAX_WORD_LENGTH} characters.`; continue; }
     if (taken.has(key)) { msg = msg || `“${text}” is already in ${taken.get(key)}.`; continue; }
     if (totalWords() + added.length >= MAX_WORDS) { msg = msg || `Limit of ${MAX_WORDS} words reached.`; break; }
     taken.set(key, group.name);
@@ -273,7 +277,8 @@ function buildCard(g) {
   /* Word chips */
   const chips = document.createElement("ul");
   chips.className = "chips";
-  g.words.forEach((word, i) => {
+  const showAll = expanded.has(g.id) || g.words.length <= CHIP_PREVIEW;
+  (showAll ? g.words : g.words.slice(0, CHIP_PREVIEW)).forEach((word, i) => {
     const li = document.createElement("li");
     li.className = "chip";
 
@@ -289,19 +294,31 @@ function buildCard(g) {
     x.addEventListener("click", () => {
       g.words.splice(i, 1);
       queueSave(0);
-      render({ id: g.id, sel: ".add-row input" });
+      render({ id: g.id, sel: ".add-row textarea" });
     });
 
     li.append(label, x);
     chips.appendChild(li);
   });
 
+  let moreBtn = null;
+  if (g.words.length > CHIP_PREVIEW) {
+    moreBtn = document.createElement("button");
+    moreBtn.type = "button";
+    moreBtn.className = "more";
+    moreBtn.textContent = showAll ? "Show fewer" : `Show all ${g.words.length} words`;
+    moreBtn.addEventListener("click", () => {
+      if (showAll) expanded.delete(g.id); else expanded.add(g.id);
+      render();
+    });
+  }
+
   /* Add words */
   const addRow = document.createElement("div");
   addRow.className = "add-row";
-  const addInput = document.createElement("input");
-  addInput.type = "text";
-  addInput.placeholder = "Add words, separated by commas";
+  const addInput = document.createElement("textarea");
+  addInput.rows = 1;
+  addInput.placeholder = "Add words: commas or one per line";
   addInput.autocomplete = "off";
   addInput.spellcheck = false;
   addInput.setAttribute("aria-label", `Add words to ${g.name}`);
@@ -319,13 +336,19 @@ function buildCard(g) {
     const msg = addWordsTo(g, addInput.value);
     queueSave(0);
     flash = msg ? { id: g.id, msg } : null;
-    render({ id: g.id, sel: ".add-row input" });
+    render({ id: g.id, sel: ".add-row textarea" });
   }
   addBtn.addEventListener("click", commit);
-  addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
+  addInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commit(); }
+  });
+  addInput.addEventListener("input", () => {
+    addInput.style.height = "auto";
+    addInput.style.height = Math.min(addInput.scrollHeight, 120) + "px";
+  });
 
   addRow.append(addInput, addBtn);
-  card.append(head, picker, chips, addRow, note);
+  card.append(head, picker, chips, ...(moreBtn ? [moreBtn] : []), addRow, note);
   return card;
 }
 
@@ -358,15 +381,15 @@ els.newSet.addEventListener("click", () => {
 
 els.enabled.addEventListener("change", () => {
   state.enabled = els.enabled.checked;
-  chrome.storage.sync.set({ enabled: state.enabled });
+  chrome.storage.local.set({ enabled: state.enabled });
 });
 els.wholeWord.addEventListener("change", () => {
   state.wholeWord = els.wholeWord.checked;
-  chrome.storage.sync.set({ wholeWord: state.wholeWord });
+  chrome.storage.local.set({ wholeWord: state.wholeWord });
 });
 els.caseSensitive.addEventListener("change", () => {
   state.caseSensitive = els.caseSensitive.checked;
-  chrome.storage.sync.set({ caseSensitive: state.caseSensitive });
+  chrome.storage.local.set({ caseSensitive: state.caseSensitive });
 });
 
 /* ---------- Live count for the current tab ---------- */
@@ -392,7 +415,21 @@ async function updateStatus() {
 
 /* ---------- Init ---------- */
 
-chrome.storage.sync.get(DEFAULTS).then(async (stored) => {
+async function loadStored() {
+  const stored = await chrome.storage.local.get(DEFAULTS);
+  if ((stored.groups || []).length || (stored.words || []).length) return stored;
+
+  // Earlier versions kept data in chrome.storage.sync: move it over once.
+  const old = await chrome.storage.sync.get(DEFAULTS);
+  if ((old.groups || []).length || (old.words || []).length) {
+    await chrome.storage.local.set(old);
+    await chrome.storage.sync.remove(["enabled", "caseSensitive", "wholeWord", "groups", "words"]);
+    return old;
+  }
+  return stored;
+}
+
+loadStored().then(async (stored) => {
   state = { ...DEFAULTS, ...stored };
   state.groups = (state.groups || []).map(normalizeGroup);
 
@@ -400,8 +437,8 @@ chrome.storage.sync.get(DEFAULTS).then(async (stored) => {
     // First run with sets: migrate old flat word list, or start with one empty set.
     state.groups = groupsFromLegacy(state.words);
     if (!state.groups.length) state.groups = [newGroup()];
-    await chrome.storage.sync.set({ groups: state.groups });
-    await chrome.storage.sync.remove("words");
+    await chrome.storage.local.set({ groups: state.groups });
+    await chrome.storage.local.remove("words");
   }
 
   render();
