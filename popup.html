@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Marker</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1><span class="brand-name">Marker</span></h1>
+      <p>Highlights your words, even as pages change.</p>
+    </div>
+    <label class="switch" title="Turn highlighting on or off">
+      <input type="checkbox" id="enabled" />
+      <span class="track"><span class="thumb"></span></span>
+      <span class="sr-only">Highlighting enabled</span>
+    </label>
+  </header>
+
+  <main>
+    <div class="sets-head">
+      <span class="field-label">Highlight sets</span>
+      <span class="pill" id="wordTotal">0 / 100 words</span>
+    </div>
+
+    <div id="sets" class="sets"></div>
+
+    <button id="newSet" type="button" class="new-set">+ New set</button>
+
+    <section class="options">
+      <label class="option">
+        <span>
+          <strong>Match whole words</strong>
+          <small>“cat” won’t highlight “category”</small>
+        </span>
+        <span class="switch small">
+          <input type="checkbox" id="wholeWord" />
+          <span class="track"><span class="thumb"></span></span>
+        </span>
+      </label>
+      <label class="option">
+        <span>
+          <strong>Match case</strong>
+          <small>“Apple” and “apple” count as different</small>
+        </span>
+        <span class="switch small">
+          <input type="checkbox" id="caseSensitive" />
+          <span class="track"><span class="thumb"></span></span>
+        </span>
+      </label>
+    </section>
+  </main>
+
+  <footer>
+    <span class="dot-status" id="statusDot"></span>
+    <span id="status">Checking this page…</span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

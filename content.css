@@ -1,0 +1,9 @@
+mark.mk-hl {
+  color: #14142b !important;
+  padding: 0 2px !important;
+  margin: 0 -1px !important;
+  border-radius: 3px !important;
+  box-decoration-break: clone !important;
+  -webkit-box-decoration-break: clone !important;
+  font: inherit !important;
+}
