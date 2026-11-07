@@ -1,9 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Marker – Live Word Highlighter",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "minimum_chrome_version": "119",
   "description": "Highlight your chosen words on every page, including content that loads while you scroll.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
   "action": {
     "default_title": "Marker",
     "default_popup": "popup.html",
@@ -24,9 +27,10 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["content.css"],
-      "run_at": "document_idle",
-      "all_frames": true
+      "run_at": "document_end",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
     }
   ]
 }

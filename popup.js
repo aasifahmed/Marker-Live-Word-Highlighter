@@ -65,7 +65,7 @@ function hslToHex(h, s, l) {
 let saveTimer = null;
 let dirty = false;
 
-function queueSave(delay = 300) {
+function queueSave(delay = 100) {
   dirty = true;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, delay);
@@ -409,7 +409,7 @@ async function updateStatus() {
           : `${n} highlight${n === 1 ? "" : "s"} on this page`;
   } catch {
     els.dot.classList.remove("live");
-    els.status.textContent = "Not available on this page. Try a regular website.";
+    els.status.textContent = "Can\u2019t reach this page. Reload the tab, or it may be a browser-protected page.";
   }
 }
 
